@@ -2,18 +2,20 @@
 #include <fstream>
 #include <cstring>
 #include <cstdlib>
+#include <sstream>
 #include <map>
 using namespace std;
 
-enum Options{compile=0,assembler=1,object=2};
+enum Options{compile=0,assembler=1};
 typedef void (*Command)(std::fstream&);
 
 fstream file;
 fstream assembled;
 string line;
-char* temp;
 Options options=compile;
 map<char,Command>commands;
+char tmpDirPath[]="/tmp/hq9+XXXXXX";
+stringstream ss;
 
 void cmdH(std::fstream&);
 void cmdQ(std::fstream&);
@@ -21,6 +23,7 @@ void cmd9(std::fstream&);
 void cmdP(std::fstream&);
 
 int main(int argc, char** argv){
+	//czy są spełnione zależności
 	if(system("which nasm > /dev/null")){
 		std::cerr<<"hq9+: nasm compiler not found!\n";
 		exit(1);
@@ -39,15 +42,24 @@ int main(int argc, char** argv){
 		cout<<"usage: hq9+ [-h] filename\n";
 		return 0;
 	}
-	else if(strcmp(argv[1],"-S")==0){
+	else if(strcmp(argv[1],"-S")==0){//show asm
 		options=assembler;
 	}
 
-	file.open(argv[1],ios::in);
-	assembled.open("/tmp/main.asm",ios::out);
+	//otwieranie plików
+	mkdtemp(tmpDirPath);
+	if(argc==2){
+		file.open(argv[1],ios::in);
+	}
+	else{
+		file.open(argv[2],ios::in);
+	}
+	ss<<tmpDirPath<<"main.asm";
+	assembled.open(ss.str().c_str(),ios::out);
 	if(!file.good()){
 		return 3;
 	}
+
 	commands['h']=cmdH;
 	commands['H']=cmdH;
 
@@ -75,82 +87,101 @@ int main(int argc, char** argv){
 		}
 	}
 	//wyjście z programu
-	assembled<<"mov rax, 60\n";
-	assembled<<"mov rdi, 0\n";
-	assembled<<"syscall\n";
+	assembled<<"\t;exit(0)\n";
+	assembled<<"\tmov rax, 60\n";
+	assembled<<"\tmov rdi, 0\n";
+	assembled<<"\tsyscall\n";
 
 	assembled<<"print:\n";
-	assembled<<"mov rdx, rsi\n";
-	assembled<<"mov rsi, rdi\n";
-	assembled<<"mov rax, 1\n";
-	assembled<<"mov rdi, 1\n";
-	assembled<<"syscall\n";
-	assembled<<"ret\n";
+	assembled<<"\tmov rdx, rsi\n";
+	assembled<<"\tmov rsi, rdi\n";
+	assembled<<"\tmov rax, 1\n";
+	assembled<<"\tmov rdi, 1\n";
+	assembled<<"\tsyscall\n";
+	assembled<<"\tret\n\n";
 
 	//dane
 	assembled<<"segment .data\n";
 
 	//h
 	assembled<<"h_str db \"Hello World!\",0x0a,0x00\n";
-	assembled<<"h_str_len equ $-h_str\n";
+	assembled<<"h_str_len equ $-h_str\n\n";
 
 	//q
 	file.close();
-	file.open(argv[1],ios::in);
+	if(argc==2){
+		file.open(argv[1],ios::in);
+	}
+	else{
+		file.open(argv[2],ios::in);
+	}
 
-	assembled<<"q_str db \"";
+	assembled<<"q_str:\n";
 	while(getline(file,line)){
-		assembled<<line<<"\","<<0x0a;
+		assembled<<"db \""<<line<<"\","<<0x0a<<"\n";
 	}
 	file.close();
 	assembled<<"\n";
-	assembled<<"q_str_len equ $-q_str\n";
+	assembled<<"q_str_len equ $-q_str\n\n";
 
 	//9
-	assembled<<"nnbob:";
+	assembled<<"nnbob:\n";
 	for(int i=99;i>1;i--){
-			assembled<<"db \""<<i<<"bottles of beer on the wall, "<<i<<" bottles of beer. Take one down and pass it around - "<<i-1<<"bottles of beer on the wall.\",0x0a\n";
+			assembled<<"\tdb \""<<i<<"bottles of beer on the wall, "<<i<<" bottles of beer. Take one down and pass it around - "<<i-1<<"bottles of beer on the wall.\",0x0a\n";
     }
-    assembled<<"db \"1 bottle of beer on the wall, 1 bottle of beer. Take it down and pass it around - no more bottles of beer on the wall.\",0x0a,0x00\n";
-	assembled<<"nnbob_len: equ $ - nnbob\n";
+    assembled<<"\tdb \"1 bottle of beer on the wall, 1 bottle of beer. Take it down and pass it around - no more bottles of beer on the wall.\",0x0a,0x00\n";
+	assembled<<"nnbob_len: equ $ - nnbob\n\n";
 
 	//+
 	assembled<<"accumulator dq 0\n";
 	assembled.close();
 
+	//kompilacja i linkowanie
 	if(options==compile){
-		system("nasm -f elf64 /tmp/main.asm");
-		system("ld -o a.out /tmp/main.o");
+		ss.str("");
+		ss<<"nasm -f elf64 "<<tmpDirPath<<"main.asm";
+		if(system(ss.str().c_str())){//compilation error
+			exit(1);
+		}
+
+		ss.str("");
+		ss<<"ld -o a.out "<<tmpDirPath<<"main.o";
+		system(ss.str().c_str());
 		std::cout<<"Compiled succesfull.\n";
 	}
 	else if(options==assembler){
-		system("cat /tmp/main.asm");
-	}
-	else{
-		system("nasm -f elf64 /tmp/main.asm");
-		system("cat /tmp/main.o");
+		ss.str("");
+		ss<<"cat "<<tmpDirPath<<"main.asm";
+		system(ss.str().c_str());
 	}
 
+	ss.str("");
+	ss<<"rm -rd "<<tmpDirPath;
+	system(ss.str().c_str());
 	return 0;
 }
 
 void cmdH(std::fstream &assembled){
-	assembled<<"mov rdi, h_str\n";
-	assembled<<"mov rsi, h_str_len\n";
-	assembled<<"call print\n";
+	assembled<<"\t;H\n";
+	assembled<<"\tmov rdi, h_str\n";
+	assembled<<"\tmov rsi, h_str_len\n";
+	assembled<<"\tcall print\n\n";
 }
 void cmdQ(std::fstream &assembled){
-	assembled<<"mov rdi, q_str\n";
-	assembled<<"mov rsi, q_str_len\n";
-	assembled<<"call print\n";
+	assembled<<"\t;Q\n";
+	assembled<<"\tmov rdi, q_str\n";
+	assembled<<"\tmov rsi, q_str_len\n";
+	assembled<<"\tcall print\n\n";
 }
 void cmd9(std::fstream &assembled){
-	assembled<<"mov rdi, nnbob\n";
-	assembled<<"mov rsi, nnbob_len\n";
-	assembled<<"call print\n";
+	assembled<<"\t;9\n";
+	assembled<<"\tmov rdi, nnbob\n";
+	assembled<<"\tmov rsi, nnbob_len\n";
+	assembled<<"\tcall print\n\n";
 }
 void cmdP(std::fstream &assembled){
-	assembled<<"mov rax, [accumulator]\n";
-	assembled<<"inc rax\n";
-	assembled<<"mov [accumulator], rax\n";
+	assembled<<"\t;+\n";
+	assembled<<"\tmov rax, [accumulator]\n";
+	assembled<<"\tinc rax\n";
+	assembled<<"\tmov [accumulator], rax\n\n";
 }
