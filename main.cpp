@@ -1,91 +1,121 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <cstdlib>
 using namespace std;
 
 fstream file;
-fstream tmp;
+fstream asembled;
 string line;
+char* temp;
+
+enum Options{compile=0,assembler=1,object=2};
+Options options=compile;
 
 int main(int argc, char** argv){
 	if(argc==1){//is any parameter
-		std:cout<<"hq9+: no input file specifed\n";
-		std::cout<<"type 'hq9+ -h' for help\n";
+		std:cerr<<"hq9+: no input file specifed\n";
+		cout<<"type 'hq9+ -h' for help\n";
 		return 1;
 	}
 	if(strcmp(argv[1],"-h")==0||strcmp(argv[1],"-help")==0||strcmp(argv[1],"--help")==0){//help
-		std::cout<<"usage: hq9+ [-h] filename\n";
+		cout<<"usage: hq9+ [-h] filename\n";
 		return 0;
+	}
+	else if(strcmp(argv[1],"-S")==0){
+		options=assembler;
 	}
 
 	file.open(argv[1],ios::in);
-	tmp.open("/tmp/main.asm",ios::out);
+	asembled.open("/tmp/main.asm",ios::out);
 	if(!file.good()){
 		return 2;
 	}
 
 	//asm header
-	tmp<<"section .text\n";
-	tmp<<"global _start\n";
-	tmp<<"_start:\n";
+	asembled<<"section .text\n";
+	asembled<<"global _start\n";
+	asembled<<"_start:\n";
 
 	while(getline(file,line)){
 		for(int x=0;x<line.size();x++){
-			if(line[x]=='h'){
-				tmp<<"call H\n";
+			if(line[x]=='h'||line[x]=='H'){
+				asembled<<"mov rdi, h_str\n";
+				asembled<<"mov rsi, h_str_len\n";
+				asembled<<"call print\n";
+			}
+			else if(line[x]=='q'||line[x]=='Q'){
+				asembled<<"mov rdi, q_str\n";
+				asembled<<"mov rsi, q_str_len\n";
+				asembled<<"call print\n";
 			}
 			else if(line[x]=='9'){
-				tmp<<"call nine\n";
+				asembled<<"mov rdi, nnbob\n";
+				asembled<<"mov rsi, nnbob_len\n";
+				asembled<<"call print\n";
+			}
+			else if(line[x]=='+'){
+				asembled<<"inc rax\n";
 			}
 			else{
-				tmp<<"inc rax\n";
+				cerr<<"'"<<line[x]<<"' is unknown command!";
+				return 0;
 			}
 		}
 	}
 	//wyjście z programu
-	tmp<<"mov rax, 60\n";
-	tmp<<"mov rdi, 0\n";
-	tmp<<"syscall\n";
+	asembled<<"mov rax, 60\n";
+	asembled<<"mov rdi, 0\n";
+	asembled<<"syscall\n";
 
-	tmp<<"H:\n";
-	tmp<<"mov rax, 1\n";
-	tmp<<"mov rdi, 1\n";
-	tmp<<"mov rsi, hello\n";
-	tmp<<"mov rdx, helloL\n";
-	tmp<<"syscall\n";
-	tmp<<"ret\n";
-
-	tmp<<"nine:\n";
-	tmp<<"mov edx, str_len\n";
-    tmp<<"mov ecx, str\n";
-    tmp<<"mov ebx, 1\n";
-    tmp<<"mov eax, 4\n";
-    tmp<<"int 0x80\n";
-	tmp<<"ret\n";
+	asembled<<"print:\n";
+	asembled<<"mov rdx, rsi\n";
+	asembled<<"mov rsi, rdi\n";
+	asembled<<"mov rax, 1\n";
+	asembled<<"mov rdi, 1\n";
+	asembled<<"syscall\n";
+	asembled<<"ret\n";
 
 	//dane
-	tmp<<"segment .data\n";
-	tmp<<"hello db \"Hello World!\",0x0a,0x00\n";
-	tmp<<"helloL equ $-hello\n";
-	tmp<<"str:\n";
-	tmp<<"%assign bottles 99\n";
-	tmp<<"%rep 99\n";
-	tmp<<"%defstr bottles_str bottles\n";
-	tmp<<"%if bottles == 1\n";
-	tmp<<"%define bottle_plur \" bottle\"\n";
-	tmp<<"%else\n";
-	tmp<<"%define bottle_plur \" bottles\"\n";
-	tmp<<"%endif\n";
-	tmp<<"db bottles_str, bottle_plur, \" of beer on the wall\", 10\n";
-	tmp<<"db bottles_str, bottle_plur, \" of beer\", 10\n";
-	tmp<<"db \"Take one down, pass it around\", 10, 10\n";
-	tmp<<"%assign bottles bottles-1\n";
-	tmp<<"%endrep\n";
-	tmp<<"db \"0 bottles of beer on the wall\", 10\n";
-	tmp<<"str_len: equ $ - str\n";
+	asembled<<"segment .data\n";
 
+	//h
+	asembled<<"h_str db \"Hello World!\",0x0a,0x00\n";
+	asembled<<"h_str_len equ $-h_str\n";
+
+	//q
 	file.close();
-	tmp.close();
+	file.open(argv[1],ios::in);
+
+	asembled<<"q_str db \"";
+	while(getline(file,line)){
+		asembled<<line<<"\","<<0x0a;
+	}
+	file.close();
+	asembled<<"\n";
+	asembled<<"q_str_len equ $-q_str\n";
+
+	//9
+	asembled<<"nnbob:";
+	for(int i=99;i>1;i--){
+			asembled<<"db \""<<i<<"bottles of beer on the wall, "<<i<<" bottles of beer. Take one down and pass it around - "<<i-1<<"bottles of beer on the wall.\",0x0a\n";
+    }
+    asembled<<"db \"1 bottle of beer on the wall, 1 bottle of beer. Take it down and pass it around - no more bottles of beer on the wall.\",0x0a,0x00\n";
+	asembled<<"nnbob_len: equ $ - nnbob\n";
+	asembled.close();
+
+	if(options==compile){
+		system("nasm -f elf64 /tmp/main.asm");
+		system("ld -o a.out /tmp/main.o");
+		std::cout<<"Compiled succesfull.\n";
+	}
+	else if(options==assembler){
+		system("cat /tmp/main.asm");
+	}
+	else{
+		system("nasm -f elf64 /tmp/main.asm");
+		system("cat /tmp/main.o");
+	}
 
 	return 0;
 }
