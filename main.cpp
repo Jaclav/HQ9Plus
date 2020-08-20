@@ -1,3 +1,4 @@
+//TODO:Dodać test.hq do git'a
 #include <iostream>
 #include <fstream>
 #include <cstring>
